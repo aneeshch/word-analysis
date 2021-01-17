@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+
+<body>
+
+  <h1>Words Analysis</h1>
+  <h3>Please upload a txt file to analyse the words</h3>
+
+
+  <p id="demo"></p>
+  <input type="file" onchange="readFile(this)">
+
+  <script>
+
+
+// Promisify API call
+    function fetchPromise(word) {
+      return new Promise((resolve, reject) => {
+        fetch(`https://dictionary.yandex.net/api/v1/dicservice.json/lookup?key=dict.1.1.20170610T055246Z.0f11bdc42e7b693a.eefbde961e10106a4efa7d852287caa49ecc68cf&lang=en-ru&text=${word}`)
+          .then(resp => resp.json())
+          .then(response => {
+            resolve(response);
+          })
+          .catch(err => reject(err))
+      });
+    }
+
+    // create sync array of words
+    function reduceFunc(strArray, str) {
+      return strArray.concat(str.text);
+    }
+
+    // reduce sync array of words
+    function reduceSyn(synArray) {
+      return synArray.reduce(reduceFunc, []);
+    }
+
+    // read contents from the file
+    function readFile(input) {
+      let file = input.files[0];
+
+      let reader = new FileReader();
+
+      reader.readAsText(file);
+
+      reader.onload = function () {
+        // replace special characters
+        let formattedData = reader.result.replace(/\n/g, ' ').replace(/,/g, ' ').replace(/'/g, ' ').replace(/"/g, ' ').replace(/\?/g, ' ').replace(/-/g, ' ').replace(/;/g, ' ').replace(/:/g, ' ').replace(/!/g, ' ').replace(/\./g, ' ');
+        const wordArray = formattedData.split(' ');
+        // count the occurences
+        let wordObj = {};
+        wordArray.forEach(eachWording => {
+          let eachWord = eachWording.trim().toLowerCase();
+          if (eachWord)
+            wordObj[eachWord] ? wordObj[eachWord] = wordObj[eachWord] + 1 : wordObj[eachWord] = 1;
+        });
+        
+        // sort occurences in desc order
+        const sortable = Object.entries(wordObj)
+          .sort(([, a], [, b]) => b - a).slice(0, 10);
+
+        let order = [];
+        let promisesArray = [];
+        const final = {};
+
+        // create promises array for api calls
+        for (let entry of sortable) {
+
+          let [word, occ] = entry;
+          final[word] = {
+            word,
+            'Count of Occurrence': occ,
+            pos: [],
+            Synonyms: []
+          };
+          order.push(word)
+          promisesArray.push(fetchPromise(word));
+        }
+
+        // call lookup apis
+        Promise.all(promisesArray).then(result => {
+          let finalJson = [];
+          result.forEach((rr, i) => {
+            let word = order[i];
+            rr.def.forEach(lookupWord => {
+              final[word].pos.push(lookupWord.pos);
+              lookupWord.tr.forEach(syncWord => {
+                if (syncWord.syn) final[word].Synonyms.push(...reduceSyn(syncWord.syn));
+              });
+            });
+          })
+          order.forEach(ord => {
+            finalJson.push(JSON.stringify(final[ord], null, 2))
+          })
+          // display final result
+          document.getElementById("demo").innerHTML = `<pre>${finalJson}</pre>`;
+        })
+
+      };
+
+      reader.onerror = function () {
+        console.log(reader.error);
+      };
+
+    }
+  </script>
+
+</body>
+
+</html>
